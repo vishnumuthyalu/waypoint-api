@@ -1,0 +1,161 @@
+openapi: 3.1.0
+info:
+  title: Waypoint API
+  version: 0.1.0
+  description: A spec-first URL shortener with click analytics.
+  contact:
+    name: Your Name
+    url: https://github.com/YOUR_USERNAME/waypoint-api
+    email: you@example.com
+servers:
+  - url: http://localhost:3000
+
+tags:
+  - name: Links
+    description: Create, inspect, and manage short links.
+
+paths:
+  /links:
+    post:
+      summary: Create a short link
+      description: Create a new short link for a destination URL, optionally with a custom alias and an expiration date.
+      operationId: createLink
+      tags: [Links]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [originalUrl]
+              properties:
+                originalUrl:
+                  type: string
+                  format: uri
+                customCode:
+                  type: string
+                  pattern: '^[a-zA-Z0-9_-]{4,12}$'
+                expiresAt:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: Link created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Link' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+    get:
+      summary: List links (paginated)
+      description: List existing short links, most recent first, paginated.
+      operationId: listLinks
+      tags: [Links]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: A page of links
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Link' }
+                  page: { type: integer }
+                  limit: { type: integer }
+                  total: { type: integer }
+
+  /links/{code}:
+    get:
+      summary: Get click stats for a link
+      description: Retrieve click statistics and metadata for a single short link.
+      operationId: getLinkStats
+      tags: [Links]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Link stats
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LinkStats' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    delete:
+      summary: Delete a link
+      description: Permanently delete a short link. Does not affect requests already in flight.
+      operationId: deleteLink
+      tags: [Links]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /{code}:
+    get:
+      summary: Redirect to the original URL
+      description: Redirect to the original URL for a short code, incrementing its click count.
+      operationId: redirect
+      tags: [Links]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '302': { description: Redirect to originalUrl }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410': { description: Link has expired }
+
+components:
+  schemas:
+    Link:
+      type: object
+      properties:
+        code: { type: string }
+        originalUrl: { type: string, format: uri }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time, nullable: true }
+    LinkStats:
+      allOf:
+        - $ref: '#/components/schemas/Link'
+        - type: object
+          properties:
+            clicks: { type: integer }
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        message: { type: string }
+  responses:
+    BadRequest:
+      description: Validation failed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Link not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Custom code already taken
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
