@@ -16,7 +16,7 @@ app.use(
 
 app.use(linksRouter);
 
-// spec-aware error handler: validator errors already carry status + message
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error(err);
     res.status(err.status || 500).json({
