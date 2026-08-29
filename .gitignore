@@ -147,3 +147,7 @@ vite.config.ts.timestamp-*
 # SQLite local database
 prisma/dev.db
 prisma/dev.db-journal
+
+# test
+requests.http
+
