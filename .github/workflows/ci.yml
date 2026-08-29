@@ -8,6 +8,8 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    env:
+        DATABASE_URL: "file:.dev.db"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,6 +19,7 @@ jobs:
 
       - run: npm ci
       - run: npx prisma generate
+      - run: npx prisma migrate deploy
       - run: npx @stoplight/spectral-cli lint spec/openapi.yaml
       - run: npm run typecheck
       - run: npm run lint
