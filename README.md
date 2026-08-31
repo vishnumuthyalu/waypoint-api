@@ -282,12 +282,6 @@ waypoint-api/
 
 ---
 
-## 📝 License
-
-This project is licensed under the ISC License.
-
----
-
 ## 🤝 Contact
 
 **Vishnu Muthyalu**  
