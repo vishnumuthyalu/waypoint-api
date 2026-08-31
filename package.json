@@ -1,8 +1,8 @@
 {
   "name": "waypoint-api",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "A spec-first URL shortener with click analytics built with TypeScript, Express, and Prisma",
+  "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
@@ -11,9 +11,13 @@
     "lint": "eslint src",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["url-shortener", "rest-api", "typescript", "express", "prisma", "openapi", "spec-driven"],
+  "author": "Vishnu Muthyalu <vm17college@gmail.com>",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vishnumuthyalu/waypoint-api.git"
+  },
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "dotenv": "^17.4.2",
