@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [redirect, analytics]
+        service: [redirect, analytics, bff]
     defaults:
       run: { working-directory: "services/${{ matrix.service }}" }
     steps:
