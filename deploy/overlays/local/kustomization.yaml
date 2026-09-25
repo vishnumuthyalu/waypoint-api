@@ -1,9 +1,17 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ../../base
+- ../../base
 images:
-  - { name: ghcr.io/vishnumuthyalu/waypoint-links, newTag: dev }
-  - { name: ghcr.io/vishnumuthyalu/waypoint-redirect, newTag: dev }
-  - { name: ghcr.io/vishnumuthyalu/waypoint-analytics, newTag: dev }
-  - { name: ghcr.io/vishnumuthyalu/waypoint-bff, newTag: dev }
+- name: ghcr.io/vishnumuthyalu/waypoint-analytics
+  newName: ghcr.io/vishnumuthyalu/waypoint-analytics
+  newTag: e908ce49eb2d1aecbc08856f700ee02b167458c8
+- name: ghcr.io/vishnumuthyalu/waypoint-bff
+  newName: ghcr.io/vishnumuthyalu/waypoint-bff
+  newTag: e908ce49eb2d1aecbc08856f700ee02b167458c8
+- name: ghcr.io/vishnumuthyalu/waypoint-links
+  newName: ghcr.io/vishnumuthyalu/waypoint-links
+  newTag: e908ce49eb2d1aecbc08856f700ee02b167458c8
+- name: ghcr.io/vishnumuthyalu/waypoint-redirect
+  newName: ghcr.io/vishnumuthyalu/waypoint-redirect
+  newTag: e908ce49eb2d1aecbc08856f700ee02b167458c8
