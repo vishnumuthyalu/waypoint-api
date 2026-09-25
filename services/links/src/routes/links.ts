@@ -1,27 +1,33 @@
 import { Router } from "express";
 import { customAlphabet } from "nanoid";
 import { prisma } from "../db";
+import { invalidate } from "../cache";
 
 const router = Router();
 const genCode = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 7);
 
+const isUniqueViolation = (err: unknown) =>
+  typeof err === "object" && err !== null && (err as { code?: string }).code === "P2002";
+
 router.post("/links", async (req, res, next) => {
-  try {
-    const { originalUrl, customCode, expiresAt } = req.body;
+  const { originalUrl, customCode, expiresAt } = req.body;
+  const attempts = customCode ? 1 : 3;
+  for (let i = 0; i < attempts; i++) {
     const code = customCode ?? genCode();
-
-    const existing = await prisma.link.findUnique({ where: { code } });
-    if (existing) {
-      return res.status(409).json({ error: "Conflict", message: "Code already in use" });
+    try {
+      const link = await prisma.link.create({
+        data: { code, originalUrl, expiresAt: expiresAt ? new Date(expiresAt) : null },
+      });
+      await invalidate(code); // clears a cached "missing" entry
+      return res.status(201).json(link);
+    } catch (err) {
+      if (!isUniqueViolation(err)) return next(err);
+      if (customCode) {
+        return res.status(409).json({ error: "Conflict", message: "Code already in use" });
+      }
     }
-
-    const link = await prisma.link.create({
-      data: { code, originalUrl, expiresAt: expiresAt ? new Date(expiresAt) : null },
-    });
-    res.status(201).json(link);
-  } catch (err) {
-    next(err);
   }
+  next(new Error("Could not generate a unique code"));
 });
 
 router.get("/links", async (req, res, next) => {
@@ -29,7 +35,7 @@ router.get("/links", async (req, res, next) => {
     const page = Number(req.query.page ?? 1);
     const limit = Number(req.query.limit ?? 20);
     const [data, total] = await Promise.all([
-      prisma.link.findMany({ skip: (page - 1) * limit, take: limit }),
+      prisma.link.findMany({ orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
       prisma.link.count(),
     ]);
     res.json({ data, page, limit, total });
@@ -50,24 +56,10 @@ router.get("/links/:code", async (req, res, next) => {
 
 router.delete("/links/:code", async (req, res, next) => {
   try {
-    const link = await prisma.link.findUnique({ where: { code: req.params.code } });
-    if (!link) return res.status(404).json({ error: "NotFound", message: "Unknown code" });
-    await prisma.link.delete({ where: { code: req.params.code } });
+    const { count } = await prisma.link.deleteMany({ where: { code: req.params.code } });
+    if (count === 0) return res.status(404).json({ error: "NotFound", message: "Unknown code" });
+    await invalidate(req.params.code);
     res.status(204).send();
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.get("/:code", async (req, res, next) => {
-  try {
-    const link = await prisma.link.findUnique({ where: { code: req.params.code } });
-    if (!link) return res.status(404).json({ error: "NotFound", message: "Unknown code" });
-    if (link.expiresAt && link.expiresAt < new Date()) {
-      return res.status(410).json({ error: "Gone", message: "Link has expired" });
-    }
-    await prisma.link.update({ where: { code: link.code }, data: { clicks: { increment: 1 } } });
-    res.redirect(302, link.originalUrl);
   } catch (err) {
     next(err);
   }

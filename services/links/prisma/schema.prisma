@@ -15,7 +15,6 @@ model Link {
   id          String    @id @default(cuid())
   code        String    @unique
   originalUrl String
-  clicks      Int       @default(0)
   createdAt   DateTime  @default(now())
   expiresAt   DateTime?
 }
