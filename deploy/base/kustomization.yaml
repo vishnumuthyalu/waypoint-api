@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: waypoint
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - redis.yaml
+  - links-migrate-job.yaml
+  - links.yaml
+  - redirect.yaml
+  - analytics.yaml
+  - bff.yaml
+  - ingress.yaml
+secretGenerator:
+  - name: waypoint-db
+    literals:
+      - password=waypoint
+      - url=postgresql://waypoint:waypoint@postgres:5432/waypoint
+generatorOptions:
+  disableNameSuffixHash: true

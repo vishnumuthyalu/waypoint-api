@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redirect
+  annotations: { argocd.argoproj.io/sync-wave: "2" }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: redirect } }
+  template:
+    metadata: { labels: { app: redirect } }
+    spec:
+      containers:
+        - name: redirect
+          image: ghcr.io/vishnumuthyalu/waypoint-redirect
+          ports: [{ containerPort: 3000 }]
+          env:
+            - { name: LINKS_URL, value: "http://links:3000" }
+            - { name: REDIS_URL, value: "redis://redis:6379" }
+          readinessProbe: { httpGet: { path: /readyz, port: 3000 }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /healthz, port: 3000 }, periodSeconds: 10 }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 192Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redirect
+spec:
+  selector: { app: redirect }
+  ports: [{ port: 3000 }]

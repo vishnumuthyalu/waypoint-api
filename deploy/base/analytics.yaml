@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics
+  annotations: { argocd.argoproj.io/sync-wave: "2" }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: analytics } }
+  template:
+    metadata: { labels: { app: analytics } }
+    spec:
+      containers:
+        - name: analytics
+          image: ghcr.io/vishnumuthyalu/waypoint-analytics
+          ports: [{ containerPort: 3000 }]
+          env:
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: waypoint-db, key: url } }
+            - { name: REDIS_URL, value: "redis://redis:6379" }
+          readinessProbe: { httpGet: { path: /readyz, port: 3000 }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /healthz, port: 3000 }, periodSeconds: 10 }
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics
+spec:
+  selector: { app: analytics }
+  ports: [{ port: 3000 }]
