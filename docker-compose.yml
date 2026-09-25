@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: waypoint
+      POSTGRES_PASSWORD: waypoint
+      POSTGRES_DB: waypoint
+    ports: ["5433:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U waypoint"]
+      interval: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+# one-off: applies Prisma migrations, then exits
+  links-migrate:
+    image: ghcr.io/vishnumuthyalu/waypoint-links:dev
+    build: services/links
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://waypoint:waypoint@postgres:5432/waypoint
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  links:
+    image: ghcr.io/vishnumuthyalu/waypoint-links:dev
+    build: services/links
+    environment:
+      DATABASE_URL: postgresql://waypoint:waypoint@postgres:5432/waypoint
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      links-migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  redirect:
+    image: ghcr.io/vishnumuthyalu/waypoint-redirect:dev
+    build: services/redirect
+    environment:
+      LINKS_URL: http://links:3000
+      REDIS_URL: redis://redis:6379
+    depends_on: [links]
+
+  analytics:
+    image: ghcr.io/vishnumuthyalu/waypoint-analytics:dev
+    build: services/analytics
+    environment:
+      DATABASE_URL: postgresql://waypoint:waypoint@postgres:5432/waypoint
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  bff:
+    image: ghcr.io/vishnumuthyalu/waypoint-bff:dev
+    build: services/bff
+    environment:
+      LINKS_URL: http://links:3000
+      ANALYTICS_URL: http://analytics:3000
+      PUBLIC_BASE_URL: http://localhost:8080
+    depends_on: [links, analytics]
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports: ["8080:80"]
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [bff, redirect]
+    
+volumes:
+  pgdata: {}

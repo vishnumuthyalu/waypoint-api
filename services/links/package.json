@@ -11,7 +11,15 @@
     "lint": "eslint src",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": ["url-shortener", "rest-api", "typescript", "express", "prisma", "openapi", "spec-driven"],
+  "keywords": [
+    "url-shortener",
+    "rest-api",
+    "typescript",
+    "express",
+    "prisma",
+    "openapi",
+    "spec-driven"
+  ],
   "author": "Vishnu Muthyalu <vm17college@gmail.com>",
   "license": "ISC",
   "repository": {
@@ -23,7 +31,9 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-openapi-validator": "^5.6.2",
-    "nanoid": "^3.3.18"
+    "ioredis": "^6.0.0",
+    "nanoid": "^3.3.18",
+    "prisma": "^6.19.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
@@ -34,7 +44,6 @@
     "eslint": "^9.39.5",
     "globals": "^17.11.0",
     "jest": "^30.5.0",
-    "prisma": "^6.19.3",
     "supertest": "^7.2.2",
     "ts-jest": "^29.4.12",
     "tsx": "^4.23.12",

@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: waypoint
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/vishnumuthyalu/waypoint-api.git
+    targetRevision: v2-microservices   # change to main after you merge in Step 10
+    path: deploy/overlays/local
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: waypoint
+  syncPolicy:
+    automated:
+      prune: true      # delete resources removed from Git
+      selfHeal: true   # undo manual kubectl changes
+    syncOptions:
+      - CreateNamespace=true

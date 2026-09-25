@@ -1,0 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: waypoint-master
+  annotations: { nginx.org/mergeable-ingress-type: master }
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: localhost
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: waypoint-api
+  annotations:
+    nginx.org/mergeable-ingress-type: minion
+    nginx.org/limit-req-rate: "10r/s"
+    nginx.org/limit-req-burst: "20"
+    nginx.org/limit-req-no-delay: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend: { service: { name: bff, port: { number: 3000 } } }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: waypoint-redirect
+  annotations: { nginx.org/mergeable-ingress-type: minion }
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: redirect, port: { number: 3000 } } }

@@ -1,233 +1,180 @@
-# Waypoint API
+# Waypoint
 
 ![CI](https://github.com/vishnumuthyalu/waypoint-api/actions/workflows/ci.yml/badge.svg)
 
-> A production-ready URL shortener built **spec-first**: the OpenAPI contract was written and validated *before* any route handlers existed, and every request and response is validated against it at runtime.
+> A spec-first URL shortener re-architected into 4 independent TypeScript services, deployed to Kubernetes with GitOps. Started as a single Express/Prisma API validated against an OpenAPI contract at runtime; evolved into a links/redirect/analytics/BFF split with an async click pipeline, Kubernetes on kind behind NGINX Ingress, and Argo CD managing every deploy straight from Git.
 
-**Live Demo:** *Coming soon – deploying to Render*
+**Live Demo:** *Coming soon*
 
 ## Why This Project Stands Out
 
-Most portfolio APIs are built code-first and documented afterward (if at all). Waypoint API demonstrates a professional spec-driven development workflow:
+Most portfolio APIs are a single service thrown at a PaaS. Waypoint demonstrates two things real engineering teams actually do:
 
-1. **Contract-first design** – The [OpenAPI 3.1 spec](spec/openapi.yaml) was written and linted before the first endpoint
-2. **Runtime validation** – `express-openapi-validator` enforces the contract on every request/response
-3. **Contract tests** – Test suite validates implementation against the spec, not just hand-written assertions
-4. **Automated CI/CD** – GitHub Actions pipeline lints the spec, type-checks, runs tests, and validates the build
-5. **Production-ready architecture** – Multi-stage Docker build, PostgreSQL with Prisma ORM, TypeScript strict mode
+1. **Contract-first design** – The [OpenAPI 3.1 spec](services/links/spec/openapi.yaml) was written and linted before the first route handler existed, and `express-openapi-validator` rejects any request/response that drifts from it at runtime.
+2. **Evolutionary architecture** – v1 was a single service with a synchronous DB write on every redirect. v2 splits it into 4 services, moves click tracking off the hot path onto a Redis Stream, and ships via GitOps instead of `kubectl apply`.
 
-This is how real engineering teams ship APIs—the contract is the source of truth.
+---
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart LR
+  U[Client] --> N[nginx ingress]
+  N -- /api --> B[dashboard-bff]
+  N -- /code --> R[redirect-service]
+  B --> L[links-service]
+  B --> A[analytics-service]
+  R -- cache miss --> L
+  R -- cache + XADD --> RD[(Redis)]
+  RD -- XREADGROUP --> A
+  L --> PG[(Postgres)]
+  A --> PG
+```
+
+| Service | Responsibility |
+|---|---|
+| **links-service** | Spec-validated CRUD for links (create/list/get/delete). Internal only — never faces the public internet. |
+| **redirect-service** | The hot path. Redis cache-aside lookup, falls back to links-service on a miss, publishes a click event to a Redis Stream, and returns a 302 — never waits on a database write. |
+| **analytics-service** | Consumes the click stream via a Redis consumer group in batches of up to 200, writes to Postgres idempotently (`stream_id UNIQUE` + `ON CONFLICT DO NOTHING`), serves `GET /stats/:code`. |
+| **dashboard-bff** | The only public API. Aggregates link + analytics data in parallel, and degrades gracefully (`analytics: { unavailable: true }`) if analytics-service is down instead of failing the whole request. |
+
+`links-service` keeps the original spec-driven validation story from v1 — the OpenAPI contract still governs every request/response for that service.
+
+### v1 → v2: What Changed
+
+| Aspect | v1 | v2 |
+|---|---|---|
+| **Services** | 1 monolithic Express API | 4 independent services (links, redirect, analytics, bff) |
+| **Click tracking** | Synchronous `UPDATE` on Postgres on every redirect | Async Redis Stream (`XADD`), consumed by a separate analytics-service |
+| **Redirect hot path** | Blocks on a database write before responding | Cache-aside on Redis only; never touches a database |
+| **Analytics** | A `clicks` column on the `Link` row | Dedicated Postgres schema (`analytics.click_events`) with per-referrer, per-day breakdowns |
+| **Caching** | None | Redis cache-aside with TTL + negative caching for unknown codes |
+| **Public surface** | links-service itself, directly exposed | Only dashboard-bff and redirect-service are public; links-service is internal-only |
+| **Deployment target** | Docker container on Render | Kubernetes (kind) behind NGINX Ingress |
+| **Deploy mechanism** | `git push` → Render auto-deploy | `git push` → GitHub Actions builds images to GHCR → Argo CD syncs the cluster (GitOps) |
+| **Database migrations** | Run at container startup (`prisma migrate deploy` in `CMD`) | Run once as a Kubernetes Job, triggered as an Argo CD sync hook |
+| **Scaling** | Single instance | Independently scaled Deployments per service (e.g. redirect/links run 2 replicas, analytics runs 1) |
+| **Resilience** | A slow/down database blocks every request | BFF degrades gracefully if analytics is down; redirect-service degrades to a cache-miss fallback if Redis has stale data |
+| **Rate limiting** | None | NGINX Ingress limits `/api/*` to 10 req/s (burst 20), redirects unaffected |
+| **p99 redirect latency @ 500 req/s** | 763.42 ms | 8.28 ms |
 
 ---
 
 ## 🚀 Features
 
-- **URL Shortening** – Generate short codes automatically or use custom aliases
-- **Click Analytics** – Track click counts per link
-- **Link Expiration** – Set optional expiration dates for time-limited links
-- **Pagination** – Efficient paginated listing of all links
-- **RESTful Design** – Five endpoints following REST conventions
-- **Type Safety** – Full TypeScript coverage with strict mode enabled
-- **Database Persistence** – PostgreSQL with Prisma ORM and migrations
+- **URL Shortening** – Auto-generated or custom short codes, with optional expiration
+- **Async click analytics** – Redis Streams decouple click tracking from the redirect's response time
+- **Graceful degradation** – The dashboard still works if analytics is temporarily down
+- **Self-healing, horizontally scaled** – Kubernetes Deployments with liveness/readiness probes
+- **GitOps deploys** – Argo CD syncs the cluster to whatever's committed to `deploy/overlays/local`; no manual `kubectl apply` after initial setup
+- **Rate limiting at the edge** – NGINX Ingress limits `/api/*` to 10 req/s (burst 20) without throttling redirects
 
 ---
 
 ## 🛠️ Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
-| **Language** | TypeScript 5.9 |
-| **Runtime** | Node.js 20 |
+|---|---|
+| **Language** | TypeScript 5.9, Node.js 24 |
 | **Framework** | Express 5 |
-| **Validation** | express-openapi-validator |
-| **Database** | PostgreSQL (Prisma ORM) |
+| **Validation** | express-openapi-validator (links-service) |
+| **Database** | PostgreSQL (Prisma ORM for links-service; raw `pg` for analytics-service's own schema) |
+| **Cache / Messaging** | Redis (cache-aside + Streams for click events) |
 | **Testing** | Jest + Supertest |
-| **Linting** | ESLint 9 with TypeScript support |
-| **CI/CD** | GitHub Actions |
-| **Containerization** | Docker (multi-stage build) |
-| **API Spec** | OpenAPI 3.1.0 |
+| **CI/CD** | GitHub Actions → builds 4 images to GHCR, bumps deploy tags automatically |
+| **Orchestration** | Kubernetes (kind), Kustomize, NGINX Ingress Controller (F5 OSS) |
+| **GitOps** | Argo CD |
+| **Load testing** | k6 |
 
 ---
 
-## 📋 API Endpoints
-
-All endpoints are documented in the [OpenAPI specification](spec/openapi.yaml). Quick reference:
+## 📋 API (via dashboard-bff)
 
 | Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/links` | Create a new short link (auto-generated or custom code) |
-| `GET` | `/links` | List all links with pagination |
-| `GET` | `/links/{code}` | Get statistics for a specific link |
-| `DELETE` | `/links/{code}` | Permanently delete a link |
-| `GET` | `/{code}` | Redirect to the original URL (increments click count) |
-
-### Example Request
+|---|---|---|
+| `POST` | `/api/links` | Create a short link |
+| `GET` | `/api/links` | List links, paginated, newest first |
+| `GET` | `/api/dashboard/links/{code}` | Link metadata + analytics in one call |
+| `DELETE` | `/api/links/{code}` | Delete a link |
+| `GET` | `/{code}` | Redirect to the original URL (served by redirect-service directly, bypasses `/api`) |
 
 ```bash
-# Create a short link
-curl -X POST http://localhost:3000/links \
+curl -X POST http://localhost/api/links \
   -H "Content-Type: application/json" \
-  -d '{
-    "originalUrl": "https://github.com/vishnumuthyalu/waypoint-api",
-    "customCode": "my-repo"
-  }'
+  -d '{"originalUrl":"https://github.com/vishnumuthyalu/waypoint-api","customCode":"repo"}'
+# -> { "code": "repo", "shortUrl": "http://localhost/repo", ... }
 
-# Response (201 Created)
-{
-  "code": "my-repo",
-  "originalUrl": "https://github.com/vishnumuthyalu/waypoint-api",
-  "createdAt": "2026-08-31T12:00:00.000Z",
-  "expiresAt": null
-}
+curl -i http://localhost/repo
+# -> 302 Found, Location: https://github.com/vishnumuthyalu/waypoint-api
 
-# Use the short link
-curl -L http://localhost:3000/my-repo
-# → Redirects to your GitHub repo
+curl http://localhost/api/dashboard/links/repo
+# -> { ..., "analytics": { "totalClicks": 1, "topReferrers": [...] } }
 ```
 
 ---
 
-## 🏗️ Architecture & Design Decisions
+## 🚦 Running It
 
-### Spec-Driven Development Process
-
-1. **Design phase** – Wrote `spec/openapi.yaml` defining all endpoints, schemas, and validation rules
-2. **Validation** – Linted with Spectral to catch spec errors early
-3. **Implementation** – Built route handlers to satisfy the contract
-4. **Enforcement** – Middleware validates every request/response against the spec
-5. **Contract tests** – Tests verify the implementation matches the spec
-
-**Why this matters:** The spec acts as a single source of truth. Any drift between documentation and implementation causes the request to fail immediately—no silent bugs, no stale docs.
-
-### Key Technical Highlights
-
-- **Nanoid for code generation** – Cryptographically strong, URL-safe random IDs (7 characters, alphanumeric)
-- **Prisma migrations** – Version-controlled schema changes, easily reproducible across environments
-- **Multi-stage Docker build** – Separates build dependencies from runtime, resulting in a lean production image (~150MB)
-- **Error handling strategy** – Central error middleware with spec-compliant error responses
-- **PostgreSQL over SQLite** – Production-ready database with proper concurrent access handling
-
----
-
-## 🚦 Getting Started
-
-### Prerequisites
-
-- Node.js 20+ (via [nvm](https://github.com/nvm-sh/nvm) recommended)
-- PostgreSQL database (local or hosted – [Neon](https://neon.tech) free tier works great)
-- Docker (optional, for containerized deployment)
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/vishnumuthyalu/waypoint-api.git
-   cd waypoint-api
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Set up environment variables**
-   
-   Create a `.env` file:
-   ```bash
-   DATABASE_URL="postgresql://user:password@localhost:5432/waypoint"
-   ```
-   
-   For development, you can use a free [Neon](https://neon.tech) PostgreSQL database.
-
-4. **Run database migrations**
-   ```bash
-   npx prisma generate
-   npx prisma migrate deploy
-   ```
-
-5. **Start the development server**
-   ```bash
-   npm run dev
-   ```
-   
-   API will be available at `http://localhost:3000`
-
-### Development Commands
-
+**Docker Compose (all 6 services + nginx):**
 ```bash
-npm run dev          # Start development server with hot-reload
-npm run build        # Compile TypeScript to dist/
-npm start            # Run compiled production build
-npm test             # Run Jest test suite
-npm run lint         # Lint code with ESLint
-npm run typecheck    # Type-check without emitting files
+docker compose up -d --build
+# -> http://localhost:8080
 ```
+
+**Kubernetes (kind + NGINX Ingress + Argo CD):**
+```bash
+kind create cluster --config deploy/kind-config.yaml
+helm install nic oci://ghcr.io/nginx/charts/nginx-ingress --version 2.7.3 \
+  -n nginx-ingress --create-namespace \
+  --set controller.service.type=NodePort \
+  --set controller.service.httpPort.nodePort=30080
+kubectl apply -k deploy/overlays/local
+# -> http://localhost
+```
+
+With Argo CD installed and the `waypoint` Application registered (`deploy/argocd/waypoint-app.yaml`), every `git push` to this repo is all that's needed to deploy — Argo CD syncs the cluster automatically.
 
 ---
 
-## 🧪 Testing
+## 🎯 Design Decisions
 
-The test suite uses **Jest + Supertest** for integration testing. Because `validateResponses: true` is enabled in the OpenAPI validator middleware, these are effectively **contract tests**—if a handler returns a response that doesn't match the spec, the request fails before the test assertion even runs.
+- **Click events go to a Redis Stream, not a synchronous write.** The redirect path only ever touches Redis on the hot path; analytics-service processes the stream independently. This is the single biggest architectural change from v1 (see [Results](#-results-v1-vs-v2) below).
+- **Cache-aside with negative caching.** redirect-service caches both hits (`link:{code}` → JSON, 5 min TTL) and misses (`missing`, 30s TTL) so repeated 404s don't hammer links-service.
+- **Idempotent analytics consumer.** A Redis consumer group with `stream_id UNIQUE` + `ON CONFLICT DO NOTHING` on the Postgres side means redelivered events (at-least-once delivery) never double-count.
+- **BFF aggregates in parallel, degrades gracefully.** `Promise.allSettled` fetches link + analytics concurrently; if analytics is down, the dashboard still returns the link with `analytics: { unavailable: true }` instead of a 502.
+- **Migrations run as a Kubernetes Job**, triggered as an Argo CD sync hook — not baked into every pod's startup, so scaling replicas never re-runs migrations.
+- **NGINX Ingress Controller (F5 OSS)**, not the community `ingress-nginx` project — the latter was retired in March 2026 with no further security patches.
+- **Analytics has its own Postgres schema** (`analytics.click_events`), so Prisma's migrations for links-service never see or touch it.
 
-```bash
-npm test
-```
+---
 
-**Test coverage:**
-- ✅ Link creation with auto-generated codes
-- ✅ Custom code validation (spec enforces 4-12 character alphanumeric pattern)
-- ✅ Redirect behavior and click tracking
-- ✅ Link deletion
-- ✅ 404 handling for unknown codes
-- ✅ Spec validation rejection (malformed URLs, invalid fields)
+## 📊 Results: v1 vs v2
+
+Load tested with k6 at a sustained 500 req/s for 60 seconds against the redirect path.
+
+| Metric | v1 (sync DB write per click) | v2 (Redis Stream, async) |
+|---|---|---|
+| p99 redirect latency | **763.42 ms** | **8.28 ms** |
+| p95 redirect latency | 575.97 ms | 4.06 ms |
+| Sustained throughput | 485.9 req/s *(couldn't keep up — 517 dropped iterations, k6 exhausted all 300 VUs)* | 499.1 req/s *(met the 500 req/s target exactly)* |
+| Request failure rate | 0.00% | 0.00% |
+| Clicks recorded vs. sent | — | **30,000 / 30,000** (zero lost, even under load) |
+
+**~92x improvement in p99 latency** by moving click tracking off the request's critical path. v1's synchronous write to Postgres on every single redirect meant the redirect endpoint itself became the bottleneck under load; v2's redirect path never touches a database at all, only Redis.
 
 ---
 
 ## 🔄 CI/CD Pipeline
 
-Every push to `main` triggers a GitHub Actions workflow that:
+On every push:
+1. `test-links` — spins up an ephemeral Postgres container, lints the OpenAPI spec (Spectral), type-checks, lints, runs Jest, builds
+2. `check-services` — type-checks and builds redirect/analytics/bff
+3. `images` — builds and pushes all 4 service images to GHCR, tagged with the commit SHA
+4. `bump-deploy` — a bot commits the new image tags into `deploy/overlays/local/kustomization.yaml`, which Argo CD then picks up and syncs automatically
 
-1. Lints the OpenAPI spec with Spectral
-2. Installs dependencies and generates Prisma client
-3. Runs database migrations
-4. Type-checks the entire codebase
-5. Lints code with ESLint
-6. Runs the test suite
-7. Compiles the TypeScript build
+No manual `docker push` or `kubectl apply` after the initial cluster bootstrap — deploys are just `git push`.
 
-The pipeline ensures the implementation never drifts from the contract—spec changes that break the code fail CI immediately.
-
-See [.github/workflows/ci.yml](.github/workflows/ci.yml) for the full workflow.
-
----
-
-## 🐳 Docker
-
-The project includes a **multi-stage Dockerfile** optimized for production:
-
-- **Stage 1 (deps):** Installs production dependencies only
-- **Stage 2 (build):** Installs all dependencies, compiles TypeScript, generates Prisma client
-- **Stage 3 (runtime):** Combines prod dependencies + compiled output, runs migrations on startup
-
-```bash
-# Build the image
-docker build -t waypoint-api .
-
-# Run locally (requires DATABASE_URL)
-docker run -p 3000:3000 -e DATABASE_URL="your-connection-string" waypoint-api
-```
-
-**Image size:** ~150MB (Node 20 Alpine + compiled app)
-
----
-
-## 🌐 Deployment (Coming Soon)
-
-Planned deployment to [Render](https://render.com) with:
-- Automatic deploys from the `main` branch
-- PostgreSQL managed database (Neon or Render-hosted)
-- Environment-based configuration
-- Zero-downtime migrations via `prisma migrate deploy` in startup command
+See [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ---
 
@@ -235,60 +182,43 @@ Planned deployment to [Render](https://render.com) with:
 
 ```
 waypoint-api/
-├── .github/workflows/
-│   └── ci.yml                    # GitHub Actions CI pipeline
-├── prisma/
-│   ├── schema.prisma             # Prisma schema (PostgreSQL)
-│   └── migrations/               # Version-controlled migrations
-├── spec/
-│   └── openapi.yaml              # OpenAPI 3.1 contract (source of truth)
-├── src/
-│   ├── app.ts                    # Express app with OpenAPI validator
-│   ├── server.ts                 # Server entry point
-│   ├── db.ts                     # Prisma client singleton
-│   ├── routes/
-│   │   └── links.ts              # All five endpoint handlers
-│   └── generated/                # Prisma-generated client (gitignored)
-├── tests/
-│   └── links.test.ts             # Integration/contract tests
-├── Dockerfile                    # Multi-stage production build
-├── jest.config.js                # Jest + ts-jest configuration
-├── tsconfig.json                 # TypeScript strict mode config
-├── package.json                  # Dependencies and scripts
-└── README.md                     # You are here
+├── .github/workflows/ci.yml
+├── docker-compose.yml
+├── services/
+│   ├── links/          # spec-validated CRUD, Prisma/Postgres
+│   ├── redirect/       # hot path: Redis cache-aside + click stream publisher
+│   ├── analytics/      # Redis consumer group -> Postgres, /stats/:code
+│   └── bff/            # public API, aggregates link + analytics
+├── deploy/
+│   ├── nginx/nginx.conf        # docker-compose nginx config
+│   ├── kind-config.yaml
+│   ├── base/                   # Kustomize base manifests
+│   ├── overlays/local/         # image tags pinned per environment
+│   └── argocd/waypoint-app.yaml
+├── loadtest/redirect.js        # k6 load test
+└── README.md
 ```
 
 ---
 
-## 🎯 What I Learned Building This
+## 🔮 Next
 
-1. **Spec-first ≠ more work** – Writing the OpenAPI spec first actually *saved* time by catching design issues before implementation
-2. **Runtime validation is powerful** – No more "the docs say X but the API returns Y" bugs
-3. **Prisma's new generator** – Migrated from `prisma-client-js` to `prisma-client` mid-project (generates to `src/generated/` instead of `node_modules`)
-4. **Docker multi-stage builds** – Reduced image size by 60% vs. a naive single-stage build
-5. **PostgreSQL ≠ just swap the connection string** – Had to regenerate migrations when switching from SQLite (different SQL dialects)
-
----
-
-## 🔮 Future Enhancements
-
-- [ ] Deploy to Render with live demo URL
-- [ ] Add authentication (API keys or JWT)
-- [ ] QR code generation for each short link
-- [ ] Detailed analytics (geographic data, referrers, device types)
-- [ ] Rate limiting with Redis
-- [ ] Swagger UI auto-generated from the OpenAPI spec
-- [ ] Link preview metadata scraping (Open Graph)
+- JWT auth in the BFF
+- Helm chart instead of raw Kustomize
+- Prometheus/Grafana metrics
+- Horizontal Pod Autoscaling (HPA)
+- Rewrite redirect-service in Go (distroless image, lower idle memory)
+- Sealed Secrets instead of plain Kustomize `secretGenerator`
 
 ---
 
 ## 🤝 Contact
 
-**Vishnu Muthyalu**  
-📧 vm17college@gmail.com  
-🔗 [GitHub](https://github.com/vishnumuthyalu)  
+**Vishnu Muthyalu**
+📧 vm17college@gmail.com
+🔗 [GitHub](https://github.com/vishnumuthyalu)
 💼 [LinkedIn](https://linkedin.com/in/vishnumuthyalu)
 
 ---
 
-**Built with a spec-first mindset. The contract is the code.**
+**Built with a spec-first mindset, shipped with GitOps.**
