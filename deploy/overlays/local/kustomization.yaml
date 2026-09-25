@@ -5,13 +5,13 @@ resources:
 images:
 - name: ghcr.io/vishnumuthyalu/waypoint-analytics
   newName: ghcr.io/vishnumuthyalu/waypoint-analytics
-  newTag: e908ce49eb2d1aecbc08856f700ee02b167458c8
+  newTag: 805cf5e427b97e68c7a98aa8f14803c4fe305e3f
 - name: ghcr.io/vishnumuthyalu/waypoint-bff
   newName: ghcr.io/vishnumuthyalu/waypoint-bff
-  newTag: e908ce49eb2d1aecbc08856f700ee02b167458c8
+  newTag: 805cf5e427b97e68c7a98aa8f14803c4fe305e3f
 - name: ghcr.io/vishnumuthyalu/waypoint-links
   newName: ghcr.io/vishnumuthyalu/waypoint-links
-  newTag: e908ce49eb2d1aecbc08856f700ee02b167458c8
+  newTag: 805cf5e427b97e68c7a98aa8f14803c4fe305e3f
 - name: ghcr.io/vishnumuthyalu/waypoint-redirect
   newName: ghcr.io/vishnumuthyalu/waypoint-redirect
-  newTag: e908ce49eb2d1aecbc08856f700ee02b167458c8
+  newTag: 805cf5e427b97e68c7a98aa8f14803c4fe305e3f
